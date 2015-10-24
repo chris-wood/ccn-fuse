@@ -207,15 +207,18 @@ class CCNxDrive(Operations):
         full_path = self._full_path(path)
         return os.open(full_path, os.O_WRONLY | os.O_CREAT, mode)
 
-    ## TODO: issue interest
     def read(self, path, length, offset, fh):
         data = self.client.get(path)
 
-        os.lseek(fh, offset, os.SEEK_SET)
-        return os.read(fh, length)
+        # TODO: move to function
+        max_offset = max(len(data) - 1, offset + length)
+        if offset >= len(data):
+            return None
+        else:
+            return data[offset:max_offset]
 
-    ## TODO: issue interest with payload
     def write(self, path, buf, offset, fh):
+        
         os.lseek(fh, offset, os.SEEK_SET)
         return os.write(fh, buf)
 
