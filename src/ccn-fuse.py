@@ -218,9 +218,8 @@ class CCNxDrive(Operations):
             return data[offset:max_offset]
 
     def write(self, path, buf, offset, fh):
-        
-        os.lseek(fh, offset, os.SEEK_SET)
-        return os.write(fh, buf)
+        self.client.push(path, buf)
+        return len(buf)
 
     ## TODO: ???
     def truncate(self, path, length, fh=None):
