@@ -118,12 +118,31 @@ class CCNxClient(object):
         except Portal.CommunicationsError as x:
             sys.stderr.write("reply failed: %d\n" % (x.errno,))
 
-# TODO: rename... maybe this isn't the right abstraction?
-class StoredFile(Object):
+class FileHandle(Object):
     def __init__(self, name, fid):
         self.name = name
         self.fid = dif
-        self.data = data
+
+    def read(self):
+        pass
+
+    def write(self):
+        pass
+
+class LocalFileHandle(FileHandle):
+    def __init__(self, name, fid, data):
+        super(LocalFileHandle, self).__init__(name, fid)
+        self.offset = 0
+
+    def read(self):
+        pass
+
+    def write(self):
+        pass
+
+class RemoteFileHandle(FileHandle):
+    def __init__(self, name, fid):
+        super(LocalFileHandle, self).__init__(name, fid)
 
     def read(self):
         pass
@@ -139,7 +158,7 @@ class ContentStore(Object):
 
     def create(self, name):
         if name not in self.files:
-            self.files[name] = StoredFile(name, descriptor_seq)
+            self.files[name] = LocalFileHandle(name, descriptor_seq)
             descriptor_seq += 1
         return self.files[name]
 
