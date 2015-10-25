@@ -136,12 +136,20 @@ class LocalFileHandle(FileHandle):
     def __init__(self, name, fid, data):
         super(LocalFileHandle, self).__init__(name, fid)
         self.offset = 0
+        self.size = 0
 
     def load(self):
+        with open(self.name) as fhandle:
+            self.data = fhandle.read()
+            self.size = len(data)
         return self
 
-    def read(self):
-        pass
+    def read(self, length, offset):
+        max_offset = max(self.size - 1, offset + length)
+        if offset >= self.size:
+            return None
+        else:
+            return self.data[offset:max_offset]
 
     def write(self):
         pass
@@ -279,19 +287,7 @@ class CCNxDrive(Operations):
         return self.content_store.create_local_file(path).fid
 
     def read(self, path, length, offset, fh):
-        data = None
-        if self.content_store.contains_file(path):
-            sfile = self.content_store.get_file(path)
-            data = sfile.data
-        else:
-            data = self.client.get(path)
-
-        # TODO: move to function
-        max_offset = max(len(data) - 1, offset + length)
-        if offset >= len(data):
-            return None
-        else:
-            return data[offset:max_offset]
+        return fh.read(length, offset)
 
     def write(self, path, buf, offset, fh):
         self.client.push(path, buf)
