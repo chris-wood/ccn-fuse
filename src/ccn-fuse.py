@@ -118,6 +118,21 @@ class CCNxClient(object):
         except Portal.CommunicationsError as x:
             sys.stderr.write("reply failed: %d\n" % (x.errno,))
 
+# TODO: rename...
+class StoredFile(Object):
+    def __init__(self, name):
+        self.name = name
+
+class ContentStore(Object):
+    def __init__(self, root):
+        self.root = root
+        self.files = {}
+
+    def create(self, name):
+        if name not in self.files:
+            self.files[name] = StoredFile(name)
+        return self.files[name]
+
 class CCNxDrive(Operations):
     def __init__(self, root):
         self.root = root
