@@ -123,6 +123,9 @@ class FileHandle(Object):
         self.name = name
         self.fid = dif
 
+    def load(self):
+        pass
+
     def read(self):
         pass
 
@@ -134,6 +137,9 @@ class LocalFileHandle(FileHandle):
         super(LocalFileHandle, self).__init__(name, fid)
         self.offset = 0
 
+    def load(self):
+        return self
+
     def read(self):
         pass
 
@@ -143,6 +149,9 @@ class LocalFileHandle(FileHandle):
 class RemoteFileHandle(FileHandle):
     def __init__(self, name, fid):
         super(LocalFileHandle, self).__init__(name, fid)
+
+    def load(self):
+        return self
 
     def read(self):
         pass
@@ -156,9 +165,27 @@ class ContentStore(Object):
         self.files = {}
         self.descriptor_seq = 0
 
-    def create(self, name):
+    def contains_file(self, name):
+        return name in self.files
+
+    def load(self, name):
+        return self.files[name].load()
+
+    def open(self, name):
+        if self.contains_file(name):
+            return self.load(name).fid
+        else:
+            return self.create_remote_file(name).load().fid
+
+    def create_local_file(self, name):
         if name not in self.files:
             self.files[name] = LocalFileHandle(name, descriptor_seq)
+            descriptor_seq += 1
+        return self.files[name]
+
+    def create_remote_file(self, name):
+        if name not in self.files:
+            self.files[name] = RemoteFileHandle(name, descriptor_seq)
             descriptor_seq += 1
         return self.files[name]
 
@@ -242,20 +269,14 @@ class CCNxDrive(Operations):
     def utimens(self, path, times=None):
         return os.utime(self._full_path(path), times)
 
-    ## TODO: do nothing
     def open(self, path, flags):
-        if self.content_store.contains_file(path):
-            return self.content_store.load(path).fid
-        else:
-            # TODO: create CCNx
-
-        full_path = self._full_path(path)
-        return os.open(full_path, flags)
+        # TODO: what about flags?
+        return self.content_store.open(path)
 
     def create(self, path, mode, fi=None):
-        # os.O_WRONLY | os.O_CREAT
+        # TODO: what about flags? os.O_WRONLY | os.O_CREAT
         # TODO: what about mode?
-        return self.content_store.create_file(path).fid
+        return self.content_store.create_local_file(path).fid
 
     def read(self, path, length, offset, fh):
         data = None
