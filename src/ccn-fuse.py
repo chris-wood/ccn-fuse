@@ -118,7 +118,7 @@ class CCNxClient(object):
         except Portal.CommunicationsError as x:
             sys.stderr.write("reply failed: %d\n" % (x.errno,))
 
-# TODO: rename...
+# TODO: rename... maybe this isn't the right abstraction?
 class StoredFile(Object):
     def __init__(self, name, fid):
         self.name = name
@@ -225,6 +225,11 @@ class CCNxDrive(Operations):
 
     ## TODO: do nothing
     def open(self, path, flags):
+        if self.content_store.contains_file(path):
+            return self.content_store.load(path).fid
+        else:
+            # TODO: create CCNx
+
         full_path = self._full_path(path)
         return os.open(full_path, flags)
 
