@@ -120,29 +120,40 @@ class CCNxClient(object):
 
 # TODO: rename...
 class StoredFile(Object):
-    def __init__(self, name):
+    def __init__(self, name, fid):
         self.name = name
+        self.fid = dif
+        self.data = data
+
+    def read(self):
+        pass
+
+    def write(self):
+        pass
 
 class ContentStore(Object):
     def __init__(self, root):
         self.root = root
         self.files = {}
+        self.descriptor_seq = 0
 
     def create(self, name):
         if name not in self.files:
-            self.files[name] = StoredFile(name)
+            self.files[name] = StoredFile(name, descriptor_seq)
+            descriptor_seq += 1
         return self.files[name]
 
 class CCNxDrive(Operations):
     def __init__(self, root):
         self.root = root
         self.client = CCNxClient()
+        self.content_store = ContentStore(root)
 
-    def _full_path(self, partial):
-        if partial.startswith("/"):
-            partial = partial[1:]
-        path = os.path.join(self.root, partial)
-        return path
+    # def _full_path(self, partial):
+    #     if partial.startswith("/"):
+    #         partial = partial[1:]
+    #     path = os.path.join(self.root, partial)
+    #     return path
 
     def access(self, path, mode):
         full_path = self._full_path(path)
@@ -217,13 +228,18 @@ class CCNxDrive(Operations):
         full_path = self._full_path(path)
         return os.open(full_path, flags)
 
-    ## TODO: create file and save locally
     def create(self, path, mode, fi=None):
-        full_path = self._full_path(path)
-        return os.open(full_path, os.O_WRONLY | os.O_CREAT, mode)
+        # os.O_WRONLY | os.O_CREAT
+        # TODO: what about mode?
+        return self.content_store.create_file(path).fid
 
     def read(self, path, length, offset, fh):
-        data = self.client.get(path)
+        data = None
+        if self.content_store.contains_file(path):
+            sfile = self.content_store.get_file(path)
+            data = sfile.data
+        else:
+            data = self.client.get(path)
 
         # TODO: move to function
         max_offset = max(len(data) - 1, offset + length)
