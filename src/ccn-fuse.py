@@ -138,6 +138,9 @@ class FileHandle(Object):
     def load(self):
         pass
 
+    def unload(self):
+        pass
+
     def read(self):
         pass
 
@@ -153,6 +156,9 @@ class LocalFileHandle(FileHandle):
             self.data = fhandle.read()
             self.size = len(data)
         return self
+
+    def unload(self):
+        self.data = None
 
     def read(self, length, offset):
         max_offset = max(self.size - 1, offset + length)
@@ -176,6 +182,9 @@ class RemoteFileHandle(FileHandle):
         if data != None:
             self.size = len(data)
         return self
+
+    def unload(self):
+        self.data = None
 
     def read(self):
         max_offset = max(self.size - 1, offset + length)
@@ -237,12 +246,21 @@ class ContentStore(Object):
             descriptor_seq += 1
         return self.files[name]
 
-    def read_path(self, prefix):
+    def get_files_in_namespace(files, prefix):
         fileset = []
         for fhandle in self.files:
             if fhandle.name.startswith(prefix):
                 fileset.append(fhandle.name)
         return fileset
+
+    def read_namespace(self, prefix):
+        return get_files_in_namespace(self.files, prefix)
+
+    def delete_namespace(self, prefix):
+        fileset = get_files_in_namespace(self.files, prefix)
+        for fhandle in fileset:
+            fhandle.unload()
+            self.files.pop(fhandle.name, None)
 
 class CCNxDrive(Operations):
     def __init__(self, root):
@@ -269,24 +287,24 @@ class CCNxDrive(Operations):
         return {}
 
     def readdir(self, path, fh):
-        return self.content_store.read_path(path)
+        return self.content_store.read_namespace(path)
 
     def readlink(self, path):
         ''' Return a string representing the path to which the symbolic link points.
         Names are names in CCN, so we just return the path.
         '''
-
         return path
 
     def mknod(self, path, mode, dev):
-        return os.mknod(self._full_path(path), mode, dev)
+        # return os.mknod(self._full_path(path), mode, dev)
+        raise Exception()
 
     def rmdir(self, path):
-        full_path = self._full_path(path)
-        return os.rmdir(full_path)
+        return self.content_store.delete_namespace(path)
 
     def mkdir(self, path, mode):
-        return os.mkdir(self._full_path(path), mode)
+        # return os.mkdir(self._full_path(path), mode)
+        raise Exception
 
     def statfs(self, path):
         full_path = self._full_path(path)
@@ -302,7 +320,7 @@ class CCNxDrive(Operations):
         return os.symlink(name, self._full_path(target))
 
     def rename(self, old, new):
-        return os.rename(self._full_path(old), self._full_path(new))
+        raise Exception("Content renaming is not allowed.")
 
     def link(self, target, name):
         return os.link(self._full_path(target), self._full_path(name))
