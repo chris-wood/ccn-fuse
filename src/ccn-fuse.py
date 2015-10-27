@@ -20,6 +20,7 @@ import argparse
 import time
 import tempfile
 import json
+import stat
 
 from fuse import FUSE, FuseOSError, Operations
 
@@ -119,9 +120,20 @@ class CCNxClient(object):
             sys.stderr.write("reply failed: %d\n" % (x.errno,))
 
 class FileHandle(Object):
+    access = False
+    mode = stat.S_READ
+    uid = 0
+    gid = 0
+
     def __init__(self, name, fid):
         self.name = name
         self.fid = dif
+        self.offset = 0
+        self.size = 0
+        self.access = False
+        self.mode = stat.S_READ
+        self.uid = 0
+        self.gid = 0
 
     def load(self):
         pass
@@ -135,8 +147,6 @@ class FileHandle(Object):
 class LocalFileHandle(FileHandle):
     def __init__(self, name, fid, data):
         super(LocalFileHandle, self).__init__(name, fid)
-        self.offset = 0
-        self.size = 0
 
     def load(self):
         with open(self.name) as fhandle:
@@ -155,14 +165,24 @@ class LocalFileHandle(FileHandle):
         pass
 
 class RemoteFileHandle(FileHandle):
-    def __init__(self, name, fid):
+    def __init__(self, name, fid, client):
         super(LocalFileHandle, self).__init__(name, fid)
+        self.client = client
 
     def load(self):
+        self.data = self.client.get(name)
+        # TODO: need to adjust the client to retrieve the data lifetime so
+        # we can refresh the local copy if needed
+        if data != None:
+            self.size = len(data)
         return self
 
     def read(self):
-        pass
+        max_offset = max(self.size - 1, offset + length)
+        if offset >= self.size:
+            return None
+        else:
+            return self.data[offset:max_offset]
 
     def write(self):
         pass
@@ -171,10 +191,22 @@ class ContentStore(Object):
     def __init__(self, root):
         self.root = root
         self.files = {}
+        self.handles = {}
         self.descriptor_seq = 0
 
     def contains_file(self, name):
         return name in self.files
+
+    def access(self, name):
+        return self.files[name].access()
+
+    def chmod(self, name, mode):
+        return self.files[name].mode = mode
+
+    def chown(self, name, uid, gid):
+        self.files[name].uid = uid
+        self.files[name].uid = gid
+        return True
 
     def load(self, name):
         return self.files[name].load()
@@ -185,15 +217,23 @@ class ContentStore(Object):
         else:
             return self.create_remote_file(name).load().fid
 
+    def get_handle(self, fh):
+        if fh in self.handles:
+            return self.handles[fh]
+        else:
+            return None # TODO: throw an exception here
+
     def create_local_file(self, name):
         if name not in self.files:
             self.files[name] = LocalFileHandle(name, descriptor_seq)
+            self.handles[descriptor_seq] = self.files[name]
             descriptor_seq += 1
         return self.files[name]
 
     def create_remote_file(self, name):
         if name not in self.files:
             self.files[name] = RemoteFileHandle(name, descriptor_seq)
+            self.handles[descriptor_seq] = self.files[name]
             descriptor_seq += 1
         return self.files[name]
 
@@ -210,17 +250,19 @@ class CCNxDrive(Operations):
     #     return path
 
     def access(self, path, mode):
-        full_path = self._full_path(path)
-        if not os.access(full_path, mode):
-            raise FuseOSError(errno.EACCES)
+        ''' Return True if access is allowed, and False otherwise.
+        '''
+        return self.content_store.access(path)
 
     def chmod(self, path, mode):
-        full_path = self._full_path(path)
-        return os.chmod(full_path, mode)
+        ''' ???
+        '''
+        return os.chmod(path, mode)
 
     def chown(self, path, uid, gid):
-        full_path = self._full_path(path)
-        return os.chown(full_path, uid, gid)
+        ''' ???
+        '''
+        return os.chown(path, uid, gid)
 
     def getattr(self, path, fh=None):
         full_path = self._full_path(path)
@@ -287,11 +329,12 @@ class CCNxDrive(Operations):
         return self.content_store.create_local_file(path).fid
 
     def read(self, path, length, offset, fh):
-        return fh.read(length, offset)
+        handle = self.content_store.get_handle(fh)
+        return handle.read(length, offset)
 
-    def write(self, path, buf, offset, fh):
-        self.client.push(path, buf)
-        return len(buf)
+    def write(self, path, buffer, offset, fh):
+        handle = self.content_store.get_handle(fh)
+        return handle.write(buffer, offset)
 
     ## TODO: ???
     def truncate(self, path, length, fh=None):
