@@ -237,17 +237,18 @@ class ContentStore(Object):
             descriptor_seq += 1
         return self.files[name]
 
+    def read_path(self, prefix):
+        fileset = []
+        for fhandle in self.files:
+            if fhandle.name.startswith(prefix):
+                fileset.append(fhandle.name)
+        return fileset
+
 class CCNxDrive(Operations):
     def __init__(self, root):
         self.root = root
         self.client = CCNxClient()
         self.content_store = ContentStore(root)
-
-    # def _full_path(self, partial):
-    #     if partial.startswith("/"):
-    #         partial = partial[1:]
-    #     path = os.path.join(self.root, partial)
-    #     return path
 
     def access(self, path, mode):
         ''' Return True if access is allowed, and False otherwise.
@@ -257,35 +258,25 @@ class CCNxDrive(Operations):
     def chmod(self, path, mode):
         ''' ???
         '''
-        return os.chmod(path, mode)
+        return self.content_store.chmod(path, mode)
 
     def chown(self, path, uid, gid):
         ''' ???
         '''
-        return os.chown(path, uid, gid)
+        return self.content_store.chown(path, uid, gid)
 
     def getattr(self, path, fh=None):
-        full_path = self._full_path(path)
-        st = os.lstat(full_path)
-        return dict((key, getattr(st, key)) for key in ('st_atime', 'st_ctime',
-                     'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
+        return {}
 
     def readdir(self, path, fh):
-        full_path = self._full_path(path)
-
-        dirents = ['.', '..']
-        if os.path.isdir(full_path):
-            dirents.extend(os.listdir(full_path))
-        for r in dirents:
-            yield r
+        return self.content_store.read_path(path)
 
     def readlink(self, path):
-        pathname = os.readlink(self._full_path(path))
-        if pathname.startswith("/"):
-            # Path name is absolute, sanitize it.
-            return os.path.relpath(pathname, self.root)
-        else:
-            return pathname
+        ''' Return a string representing the path to which the symbolic link points.
+        Names are names in CCN, so we just return the path.
+        '''
+
+        return path
 
     def mknod(self, path, mode, dev):
         return os.mknod(self._full_path(path), mode, dev)
