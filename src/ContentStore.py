@@ -11,9 +11,10 @@ import tempfile
 import json
 import stat
 
+from FileHandle import *
 from CCNxClient import *
 
-class ContentStore(Object):
+class ContentStore(object):
     def __init__(self, root):
         self.root = root
         self.files = {}
@@ -79,7 +80,8 @@ class ContentStore(Object):
         return self.files[name].access()
 
     def chmod(self, name, mode):
-        return self.files[name].mode = mode
+        self.files[name].mode = mode
+        return mode
 
     def chown(self, name, uid, gid):
         self.files[name].uid = uid

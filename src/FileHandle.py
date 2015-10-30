@@ -5,7 +5,7 @@
 from CCNxClient import *
 from threading import Timer
 
-class FileHandle(Object):
+class FileHandle(object):
     def __init__(self, name, fullpath, mode, fid):
         self.fullpath = fullpath
         self.name = name
