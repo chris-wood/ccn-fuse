@@ -22,6 +22,7 @@ import tempfile
 import json
 import stat
 
+from threading import Timer
 from fuse import FUSE, FuseOSError, Operations
 
 sys.path.append('/Users/cwood/PARC/Distillery/build/lib/python2.7/site-packages')
@@ -46,7 +47,8 @@ class CCNxClient(object):
     def openAsyncPortal(self):
         identity = self.setupIdentity()
         factory = PortalFactory(identity)
-        portal = factory.create_portal(transport=TransportType_RTA_Message, attributes=PortalAttributes_NonBlocking)
+        portal = factory.create_portal(transport=TransportType_RTA_Message, \
+            attributes=PortalAttributes_NonBlocking)
         return portal
 
     def get(self, name, data):
@@ -120,36 +122,60 @@ class CCNxClient(object):
             sys.stderr.write("reply failed: %d\n" % (x.errno,))
 
 class FileHandle(Object):
-    access = False
-    mode = stat.S_READ
-    uid = 0
-    gid = 0
-
-    def __init__(self, name, fid):
+    def __init__(self, name, fullpath, mode, fid):
+        self.fullpath = fullpath
         self.name = name
-        self.fid = dif
+        self.mode = mode
+        self.fid = fid
         self.offset = 0
         self.size = 0
         self.access = False
         self.mode = stat.S_READ
         self.uid = 0
         self.gid = 0
+        self.times = (0, 0)
+        self.flags = os.O_RDONLY # default
 
     def load(self):
         pass
 
     def unload(self):
-        pass
+        self.data = None
 
     def read(self):
-        pass
+        max_offset = max(self.size - 1, offset + length)
+        if offset >= self.size:
+            return None
+        else:
+            return self.data[offset:max_offset]
 
-    def write(self):
-        pass
+    def write(self, buff, offset):
+        length = len(buff) + offset
+        if length > self.size:
+            self.size = length
+        self.data[offset:length] = buff
+
+    def truncate(self, length):
+        ''' Truncate the file to specified length.
+        '''
+        self.size = length
+
+    def fsync(self):
+        ''' Force a write to the file system.
+        '''
+        if self.data != None:
+            with open(self.fullpath, "w") as fhandle:
+                fhandle.write(self.data)
+
+    def close(self):
+        ''' Unload and release all resources.
+        '''
+        self.unload()
+        self.data = None
 
 class LocalFileHandle(FileHandle):
-    def __init__(self, name, fid, data):
-        super(LocalFileHandle, self).__init__(name, fid)
+    def __init__(self, name, fullpath, mode, fid):
+        super(LocalFileHandle, self).__init__(name, fullpath, mode, fid)
 
     def load(self):
         with open(self.name) as fhandle:
@@ -157,44 +183,20 @@ class LocalFileHandle(FileHandle):
             self.size = len(data)
         return self
 
-    def unload(self):
-        self.data = None
-
-    def read(self, length, offset):
-        max_offset = max(self.size - 1, offset + length)
-        if offset >= self.size:
-            return None
-        else:
-            return self.data[offset:max_offset]
-
-    def write(self):
-        pass
-
 class RemoteFileHandle(FileHandle):
-    def __init__(self, name, fid, client):
-        super(LocalFileHandle, self).__init__(name, fid)
+    def __init__(self, name, fullpath, fid, client):
+        super(LocalFileHandle, self).__init__(name, fullpath, 0, fid)
         self.client = client
 
     def load(self):
-        self.data = self.client.get(name)
-        # TODO: need to adjust the client to retrieve the data lifetime so
-        # we can refresh the local copy if needed
+        self.data, self.expiry = self.client.volatile_get(name)
         if data != None:
             self.size = len(data)
+
+            # Start a timer to refresh the content when the expiration time is up
+            timer = Timer(self.expiry, self.load)
+            timer.start()
         return self
-
-    def unload(self):
-        self.data = None
-
-    def read(self):
-        max_offset = max(self.size - 1, offset + length)
-        if offset >= self.size:
-            return None
-        else:
-            return self.data[offset:max_offset]
-
-    def write(self):
-        pass
 
 class ContentStore(Object):
     def __init__(self, root):
@@ -206,42 +208,38 @@ class ContentStore(Object):
     def contains_file(self, name):
         return name in self.files
 
-    def access(self, name):
-        return self.files[name].access()
-
-    def chmod(self, name, mode):
-        return self.files[name].mode = mode
-
-    def chown(self, name, uid, gid):
-        self.files[name].uid = uid
-        self.files[name].uid = gid
-        return True
-
     def load(self, name):
         return self.files[name].load()
 
-    def open(self, name):
+    def open(self, name, flags):
         if self.contains_file(name):
+            self.files[name].flags = flags
             return self.load(name).fid
         else:
             return self.create_remote_file(name).load().fid
+
+    def get_handle_from_path(self, path):
+        if path in self.files:
+            return self.files[path]
+        else:
+            raise Exception("File %s does not exist" % (path))
 
     def get_handle(self, fh):
         if fh in self.handles:
             return self.handles[fh]
         else:
-            return None # TODO: throw an exception here
+            raise Exception("File handle %d does not exist" % (fh))
 
-    def create_local_file(self, name):
+    def create_local_file(self, name, mode):
         if name not in self.files:
-            self.files[name] = LocalFileHandle(name, descriptor_seq)
+            self.files[name] = LocalFileHandle(name, os.path.join(self.root, name), mode, descriptor_seq)
             self.handles[descriptor_seq] = self.files[name]
             descriptor_seq += 1
         return self.files[name]
 
-    def create_remote_file(self, name):
+    def create_remote_file(self, name, mode):
         if name not in self.files:
-            self.files[name] = RemoteFileHandle(name, descriptor_seq)
+            self.files[name] = RemoteFileHandle(name, os.path.join(self.root, name), descriptor_seq)
             self.handles[descriptor_seq] = self.files[name]
             descriptor_seq += 1
         return self.files[name]
@@ -261,6 +259,35 @@ class ContentStore(Object):
         for fhandle in fileset:
             fhandle.unload()
             self.files.pop(fhandle.name, None)
+
+    def access(self, name):
+        return self.files[name].access()
+
+    def chmod(self, name, mode):
+        return self.files[name].mode = mode
+
+    def chown(self, name, uid, gid):
+        self.files[name].uid = uid
+        self.files[name].uid = gid
+        return True
+
+    def symlink(self, name, target):
+        if name not in self.files:
+            raise Exception("%s not a valid file" % (name))
+        if target in self.files:
+            return
+        self.files[target] = self.files[name]
+
+    def unlink(self, name):
+        if name not in self.files:
+            raise Exception("%s not a valid file" % (name))
+        self.files[name].close()
+        del self.files[name]
+
+    def utime(self, name, times):
+        if name not in self.files:
+            raise Exception("%s not a valid file" % (name))
+        self.files[name].times = times
 
 class CCNxDrive(Operations):
     def __init__(self, root):
@@ -297,6 +324,7 @@ class CCNxDrive(Operations):
 
     def mknod(self, path, mode, dev):
         # return os.mknod(self._full_path(path), mode, dev)
+        # TODO: is this the same as a Manifest?
         raise Exception()
 
     def rmdir(self, path):
@@ -304,62 +332,58 @@ class CCNxDrive(Operations):
 
     def mkdir(self, path, mode):
         # return os.mkdir(self._full_path(path), mode)
-        raise Exception
+        # TODO: is this the same as a Manifest?
+        raise Exception()
 
     def statfs(self, path):
-        full_path = self._full_path(path)
-        stv = os.statvfs(full_path)
-        return dict((key, getattr(stv, key)) for key in ('f_bavail', 'f_bfree',
-            'f_blocks', 'f_bsize', 'f_favail', 'f_ffree', 'f_files', 'f_flag',
-            'f_frsize', 'f_namemax'))
+        # stv = os.statvfs(path)
+        # return dict((key, getattr(stv, key)) for key in ('f_bavail', 'f_bfree',
+        #     'f_blocks', 'f_bsize', 'f_favail', 'f_ffree', 'f_files', 'f_flag',
+        #     'f_frsize', 'f_namemax'))
+        raise Exception("statfs not implemented.")
 
     def unlink(self, path):
-        return os.unlink(self._full_path(path))
+        self.content_store.unlink(path)
 
     def symlink(self, name, target):
-        return os.symlink(name, self._full_path(target))
+        self.content_store.symlink(name, target)
 
     def rename(self, old, new):
-        raise Exception("Content renaming is not allowed.")
+        raise Exception("rename not implemented")
 
     def link(self, target, name):
-        return os.link(self._full_path(target), self._full_path(name))
+        # return os.link(target, name)
+        raise Exception("link not implemented")
 
     def utimens(self, path, times=None):
-        return os.utime(self._full_path(path), times)
+        self.content_store.utime(path, times)
 
     def open(self, path, flags):
-        # TODO: what about flags?
-        return self.content_store.open(path)
+        return self.content_store.open(path, flags)
 
     def create(self, path, mode, fi=None):
-        # TODO: what about flags? os.O_WRONLY | os.O_CREAT
-        # TODO: what about mode?
-        return self.content_store.create_local_file(path).fid
+        return self.content_store.create_local_file(path, mode).fid
 
-    def read(self, path, length, offset, fh):
-        handle = self.content_store.get_handle(fh)
+    def read(self, path, length, offset, fh = None):
+        handle = self.content_store.get_handle_from_path(path)
         return handle.read(length, offset)
 
-    def write(self, path, buffer, offset, fh):
-        handle = self.content_store.get_handle(fh)
+    def write(self, path, buffer, offset, fh = None):
+        handle = self.content_store.get_handle_from_path(path)
         return handle.write(buffer, offset)
 
-    ## TODO: ???
-    def truncate(self, path, length, fh=None):
-        full_path = self._full_path(path)
-        with open(full_path, 'r+') as f:
-            f.truncate(length)
+    def truncate(self, path, length, fh = None):
+        handle = self.content_store.get_handle_from_path(path)
+        return handle.truncate(length)
 
-    ## TODO: ???
     def flush(self, path, fh):
-        return os.fsync(fh)
+        handle = self.content_store.get_handle_from_path(path)
+        return handle.fsync(length)
 
-    ## TODO: ???
     def release(self, path, fh):
-        return os.close(fh)
+        handle = self.content_store.get_handle_from_path(path)
+        return handle.close(length)
 
-    ## TODO: ???
     def fsync(self, path, fdatasync, fh):
         return self.flush(path, fh)
 
