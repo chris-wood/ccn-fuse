@@ -16,7 +16,9 @@ from CCNx import *
 
 class CCNxClient(object):
     def __init__(self, async = False):
+        print "Async? %d" % (async)
         self.portal = self.openAsyncPortal() if async else self.openPortal()
+        print "Done."
 
     def setupIdentity(self):
         global IDENTITY_FILE
@@ -106,3 +108,6 @@ class CCNxClient(object):
             self.portal.send(ContentObject(Name(name), data))
         except Portal.CommunicationsError as x:
             sys.stderr.write("reply failed: %d\n" % (x.errno,))
+
+if __name__ == "__main__":
+    client = CCNxClient()

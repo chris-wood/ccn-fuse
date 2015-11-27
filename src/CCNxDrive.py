@@ -22,7 +22,10 @@ def display_args(func):
     argnames = func.func_code.co_varnames[:func.func_code.co_argcount]
     fname = func.func_name
     def echo_func(*args,**kwargs):
-        print >> sys.stderr, fname, "(", ', '.join(
+        print fname, "(", ', '.join(
+            '%s=%r' % entry
+            for entry in zip(argnames,args[:len(argnames)]) + [("args",list(args[len(argnames):]))] + [("kwargs",kwargs)]) + " )"
+        print >> sys.stdout, fname, "(", ', '.join(
             '%s=%r' % entry
             for entry in zip(argnames,args[:len(argnames)]) + [("args",list(args[len(argnames):]))] + [("kwargs",kwargs)]) + " )"
     return func
@@ -31,7 +34,6 @@ class CCNxDrive(Operations):
     @display_args
     def __init__(self, root):
         self.root = root
-        # self.client = CCNxClient()
         self.content_store = ContentStore(root)
 
     @display_args
@@ -84,11 +86,11 @@ class CCNxDrive(Operations):
 
     @display_args
     def statfs(self, path):
-        # stv = os.statvfs(path)
-        # return dict((key, getattr(stv, key)) for key in ('f_bavail', 'f_bfree',
-        #     'f_blocks', 'f_bsize', 'f_favail', 'f_ffree', 'f_files', 'f_flag',
-        #     'f_frsize', 'f_namemax'))
-        raise Exception("statfs not implemented.")
+        stv = os.statvfs(path)
+        return dict((key, getattr(stv, key)) for key in ('f_bavail', 'f_bfree',
+            'f_blocks', 'f_bsize', 'f_favail', 'f_ffree', 'f_files', 'f_flag',
+            'f_frsize', 'f_namemax'))
+        # raise Exception("statfs not implemented.")
 
     @display_args
     def unlink(self, path):
@@ -100,12 +102,15 @@ class CCNxDrive(Operations):
 
     @display_args
     def rename(self, old, new):
-        raise Exception("rename not implemented")
+        # TODO: do it
+        pass
+        # raise Exception("rename not implemented")
 
     @display_args
     def link(self, target, name):
-        # return os.link(target, name)
-        raise Exception("link not implemented")
+        # TODO: do it
+        return os.link(target, name)
+        # raise Exception("link not implemented")
 
     @display_args
     def utimens(self, path, times=None):
