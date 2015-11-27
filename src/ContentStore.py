@@ -20,6 +20,7 @@ class ContentStore(object):
         self.files = {}
         self.handles = {}
         self.descriptor_seq = 0
+        self.client = CCNxClient()
 
     def contains_file(self, name):
         return name in self.files
@@ -55,7 +56,7 @@ class ContentStore(object):
 
     def create_remote_file(self, name, mode):
         if name not in self.files:
-            self.files[name] = RemoteFileHandle(name, os.path.join(self.root, name), descriptor_seq)
+            self.files[name] = RemoteFileHandle(name, os.path.join(self.root, name), descriptor_seq, self.client)
             self.handles[descriptor_seq] = self.files[name]
             descriptor_seq += 1
         return self.files[name]
